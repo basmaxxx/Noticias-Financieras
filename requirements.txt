@@ -1,0 +1,6 @@
+anthropic>=2.3.0
+feedparser>=6.0
+pydantic>=2.7
+requests>=2.31
+tzdata
+yfinance>=1.0

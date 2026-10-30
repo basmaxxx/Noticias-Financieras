@@ -1,0 +1,50 @@
+name: Resumen financiero semanal
+
+on:
+  schedule:
+    # Domingo 15:15 UTC = 12:15 en Argentina. GitHub puede demorar los cron;
+    # el script genera el resumen y espera hasta las 13:00 (hora AR) para publicar.
+    - cron: "15 15 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Solo generar (no publicar en Discord)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: resumen-semanal
+  cancel-in-progress: false
+
+jobs:
+  resumen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Generar y publicar
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then ARGS="--no-wait"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          python -m noticias_financieras $ARGS
+
+      - name: Guardar el resumen generado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resumen-${{ github.run_id }}
+          path: output/
+          retention-days: 90
+          if-no-files-found: ignore

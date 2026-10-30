@@ -1,0 +1,217 @@
+# Configuración del resumen financiero semanal.
+# Las fuentes se listan en orden de prioridad: cuando varias notas cubren la misma
+# historia, el título que se muestra es el de la fuente que aparece primero.
+
+[general]
+timezone = "America/Argentina/Buenos_Aires"
+post_time = "13:00"        # hora local de publicación en Discord
+max_wait_minutes = 120     # si el job arranca antes, espera hasta post_time (como máximo esto)
+lookback_days = 7
+
+[llm]
+model = "claude-opus-5-5"
+effort = "high"
+max_stories = 600          # historias (ya agrupadas) que se envían al modelo
+max_companies = 8          # empresas con análisis fundamental
+
+[market]
+max_age_days = 5           # cotizaciones más viejas que esto se descartan (dato desactualizado)
+yield_tickers = ["^TNX"]   # se muestran en puntos básicos, no en %
+
+[market.ccl]
+name = "Dólar CCL (GGAL)"
+local = "GGAL.BA"
+adr = "GGAL"
+ratio = 10
+
+[market.groups."Índices"]
+"S&P 500" = "^GSPC"
+"Nasdaq" = "^IXIC"
+"Dow Jones" = "^DJI"
+"Russell 2000" = "^RUT"
+"VIX" = "^VIX"
+"Euro Stoxx 50" = "^STOXX50E"
+"Nikkei 225" = "^N225"
+"Bovespa" = "^BVSP"
+"Merval (ARS)" = "^MERV"
+
+[market.groups."Tasas, monedas y commodities"]
+"UST 10 años" = "^TNX"
+"DXY" = "DX-Y.NYB"
+"EUR/USD" = "EURUSD=X"
+"USD/ARS oficial" = "ARS=X"
+"Oro" = "GC=F"
+"Petróleo WTI" = "CL=F"
+"Petróleo Brent" = "BZ=F"
+"Cobre" = "HG=F"
+"Soja" = "ZS=F"
+"Bitcoin" = "BTC-USD"
+
+[market.groups."Sectores EE.UU."]
+"Tecnología" = "XLK"
+"Financiero" = "XLF"
+"Energía" = "XLE"
+"Salud" = "XLV"
+"Industrial" = "XLI"
+"Consumo discrec." = "XLY"
+"Consumo básico" = "XLP"
+"Utilities" = "XLU"
+"Materiales" = "XLB"
+"Real estate" = "XLRE"
+"Comunicaciones" = "XLC"
+
+[market.groups."ADRs argentinos"]
+"Galicia" = "GGAL"
+"Macro" = "BMA"
+"BBVA Argentina" = "BBAR"
+"Supervielle" = "SUPV"
+"YPF" = "YPF"
+"Pampa Energía" = "PAM"
+"Central Puerto" = "CEPU"
+"TGS" = "TGS"
+"Edenor" = "EDN"
+"Vista Energy" = "VIST"
+"Loma Negra" = "LOMA"
+"Telecom" = "TEO"
+"Cresud" = "CRESY"
+"IRSA" = "IRS"
+"MercadoLibre" = "MELI"
+"Globant" = "GLOB"
+
+[market.groups."Grandes de EE.UU."]
+"Apple" = "AAPL"
+"Microsoft" = "MSFT"
+"NVIDIA" = "NVDA"
+"Amazon" = "AMZN"
+"Alphabet" = "GOOGL"
+"Meta" = "META"
+"Tesla" = "TSLA"
+"Broadcom" = "AVGO"
+"JPMorgan" = "JPM"
+"Berkshire" = "BRK-B"
+"Visa" = "V"
+"Eli Lilly" = "LLY"
+"UnitedHealth" = "UNH"
+"Exxon" = "XOM"
+"Walmart" = "WMT"
+"Netflix" = "NFLX"
+"AMD" = "AMD"
+
+# --- Fuentes -----------------------------------------------------------------
+# Reuters, Bloomberg y Barron's no publican RSS abiertos: se leen vía Google News
+# restringido a su dominio (site:), así que siguen siendo notas de ese medio.
+
+[[sources]]
+name = "Reuters"
+region = "global"
+url = "https://news.google.com/rss/search?q=when:7d+site:reuters.com+markets&hl=en-US&gl=US&ceid=US:en"
+
+[[sources]]
+name = "Reuters"
+region = "global"
+url = "https://news.google.com/rss/search?q=when:7d+site:reuters.com+earnings&hl=en-US&gl=US&ceid=US:en"
+
+[[sources]]
+name = "Bloomberg"
+region = "global"
+url = "https://news.google.com/rss/search?q=when:7d+site:bloomberg.com+markets&hl=en-US&gl=US&ceid=US:en"
+
+[[sources]]
+name = "Bloomberg"
+region = "global"
+url = "https://news.google.com/rss/search?q=when:7d+site:bloomberg.com+stocks&hl=en-US&gl=US&ceid=US:en"
+
+[[sources]]
+name = "Wall Street Journal"
+region = "global"
+url = "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain"
+
+[[sources]]
+name = "Financial Times"
+region = "global"
+url = "https://www.ft.com/markets?format=rss"
+
+[[sources]]
+name = "CNBC"
+region = "global"
+url = "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+
+[[sources]]
+name = "CNBC"
+region = "global"
+url = "https://www.cnbc.com/id/20910258/device/rss/rss.html"
+
+[[sources]]
+name = "CNBC"
+region = "global"
+url = "https://www.cnbc.com/id/15839135/device/rss/rss.html"
+
+[[sources]]
+name = "MarketWatch"
+region = "global"
+url = "https://feeds.content.dowjones.io/public/rss/mw_topstories"
+
+[[sources]]
+name = "Barron's"
+region = "global"
+url = "https://news.google.com/rss/search?q=when:7d+site:barrons.com&hl=en-US&gl=US&ceid=US:en"
+
+[[sources]]
+name = "The Economist"
+region = "global"
+url = "https://www.economist.com/finance-and-economics/rss.xml"
+
+[[sources]]
+name = "Seeking Alpha"
+region = "global"
+url = "https://seekingalpha.com/market_currents.xml"
+
+[[sources]]
+name = "Investing.com"
+region = "global"
+url = "https://www.investing.com/rss/news.rss"
+
+[[sources]]
+name = "Reuters"
+region = "argentina"
+url = "https://news.google.com/rss/search?q=when:7d+site:reuters.com+argentina&hl=en-US&gl=US&ceid=US:en"
+
+[[sources]]
+name = "Bloomberg Línea"
+region = "argentina"
+url = "https://news.google.com/rss/search?q=when:7d+site:bloomberglinea.com+argentina&hl=es-419&gl=AR&ceid=AR:es-419"
+
+[[sources]]
+name = "Ámbito"
+region = "argentina"
+url = "https://www.ambito.com/rss/pages/finanzas.xml"
+
+[[sources]]
+name = "Ámbito"
+region = "argentina"
+url = "https://www.ambito.com/rss/pages/economia.xml"
+
+[[sources]]
+name = "El Cronista"
+region = "argentina"
+url = "https://www.cronista.com/files/rss/economia-politica.xml"
+
+[[sources]]
+name = "Infobae"
+region = "argentina"
+url = "https://www.infobae.com/arc/outboundfeeds/rss/category/economia/"
+
+[[sources]]
+name = "La Nación"
+region = "argentina"
+url = "https://www.lanacion.com.ar/arc/outboundfeeds/rss/category/economia/"
+
+[[sources]]
+name = "iProfesional"
+region = "argentina"
+url = "https://www.iprofesional.com/rss/finanzas"
+
+[[sources]]
+name = "Clarín"
+region = "argentina"
+url = "https://www.clarin.com/rss/economia/"
