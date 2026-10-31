@@ -9,8 +9,10 @@ max_wait_minutes = 120     # si el job arranca antes, espera hasta post_time (co
 lookback_days = 7
 
 [llm]
-model = "claude-opus-5-5"
+model = "gpt-6.1-terra"     # OpenAI: modelo principal para redacción y análisis
 effort = "high"
+max_output_tokens = 64000
+timeout_seconds = 600
 max_stories = 600          # historias (ya agrupadas) que se envían al modelo
 max_companies = 8          # empresas con análisis fundamental
 

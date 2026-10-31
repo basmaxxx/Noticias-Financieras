@@ -4,7 +4,7 @@ Uso:
     python -m noticias_financieras              # genera, espera a la hora configurada y publica
     python -m noticias_financieras --no-wait    # publica apenas termina
     python -m noticias_financieras --dry-run    # no publica: guarda la vista previa en output/
-    python -m noticias_financieras --dry-run --no-llm   # sin llamar a Claude (solo datos y titulares)
+    python -m noticias_financieras --dry-run --no-llm   # sin llamar a OpenAI (solo datos y titulares)
 """
 
 import argparse
@@ -14,13 +14,13 @@ import os
 import sys
 import time
 import tomllib
-import warnings
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import discord, market, render, sources
+from .logging_setup import configure_logging, redact_secrets
 from .summarizer import Summarizer, format_fundamentals, format_market, pick_companies, validate_analysis, validate_digest
 
 log = logging.getLogger("noticias_financieras")
@@ -53,6 +53,7 @@ def build_report(cfg: dict, use_llm: bool) -> render.Report:
     today = now.astimezone(tz).date()
     mcfg, lcfg = cfg["market"], cfg["llm"]
 
+    log.info("Recolectando noticias: %s al %s, %d feeds", since, now, len(cfg["sources"]))
     articles, fetch_report = sources.fetch_all(cfg["sources"], since, now)
     stories = sources.cluster(articles, lcfg["max_stories"])
     log.info("%d notas -> %d historias; medios OK: %d, con error: %s",
@@ -60,13 +61,14 @@ def build_report(cfg: dict, use_llm: bool) -> render.Report:
     if len(stories) < 20:
         raise RuntimeError(f"Muy pocas noticias recolectadas ({len(stories)}); revisar las fuentes")
 
+    log.info("Descargando cotizaciones de %d grupos", len(mcfg["groups"]))
     snapshot = market.snapshot(mcfg["groups"], today, mcfg["max_age_days"])
     extra = []
     try:
         if ccl := market.ccl(mcfg["ccl"], today, mcfg["max_age_days"]):
             extra.append(ccl)
-    except Exception as exc:
-        log.warning("No se pudo calcular el CCL: %s", exc)
+    except Exception:
+        log.warning("No se pudo calcular el CCL", exc_info=True)
     for group, quotes in snapshot.items():
         if any(q.ticker == "ARS=X" for q in quotes):
             quotes.extend(extra)
@@ -88,27 +90,35 @@ def build_report(cfg: dict, use_llm: bool) -> render.Report:
 
     companies: list[str] = []
     if use_llm:
+        stage = "inicialización"
         try:
-            summarizer = Summarizer(lcfg["model"], lcfg["effort"])
+            summarizer = Summarizer(lcfg["model"], lcfg["effort"],
+                                    max_output_tokens=lcfg.get("max_output_tokens", 64000),
+                                    timeout_seconds=lcfg.get("timeout_seconds", 600))
             market_text = format_market(snapshot, [])
+            stage = "resumen de noticias"
             report.digest = validate_digest(
                 summarizer.news(stories, market_text, report.start, report.end), stories)
             companies = pick_companies(report.digest, stories, lcfg["max_companies"])
             log.info("Empresas para análisis fundamental: %s", companies)
+            stage = "fundamentals"
             report.fundamentals = market.fundamentals(companies)
             report.fundamental_quotes = market.quotes_for(list(report.fundamentals), today, mcfg["max_age_days"])
 
             cited = {i for item in [*report.digest.highlights, *report.digest.macro_global,
                                     *report.digest.argentina, *report.digest.empresas] for i in item.fuentes}
             cited_stories = [s for s in stories if s.id in cited] or stories[:60]
+            stage = "análisis semanal"
             analysis = summarizer.analysis(report.digest, cited_stories, market_text,
                                            format_fundamentals(report.fundamentals))
             report.analysis = validate_analysis(analysis, stories, report.fundamentals,
                                                 quoted | set(report.fundamental_quotes))
         except Exception as exc:
             # Si falla la IA se publica igual con datos de mercado y titulares.
-            log.exception("Falló el análisis con Claude")
-            report.llm_error = f"{type(exc).__name__}: {exc}"
+            log.exception("Informe parcial: falló la etapa %s, modelo=%s", stage, lcfg["model"])
+            report.llm_error = redact_secrets(f"{type(exc).__name__}: {exc}")
+    else:
+        log.info("IA desactivada por --no-llm")
 
     watchlist = [t for group, m in mcfg["groups"].items() if group.startswith(("ADRs", "Grandes"))
                  for t in m.values()]
@@ -140,37 +150,45 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Resumen financiero semanal para Discord")
     parser.add_argument("--config", default=str(ROOT / "config.toml"))
     parser.add_argument("--dry-run", action="store_true", help="no publica en Discord")
-    parser.add_argument("--no-llm", action="store_true", help="no llama a Claude")
+    parser.add_argument("--no-llm", action="store_true", help="no llama a OpenAI")
     parser.add_argument("--no-wait", action="store_true", help="publica sin esperar a post_time")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    logging.getLogger("yfinance").setLevel(logging.CRITICAL)
-    warnings.filterwarnings("ignore", module="yfinance")
-    load_dotenv(ROOT / ".env")
-    cfg = tomllib.loads(Path(args.config).read_text(encoding="utf-8"))
-    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
-    if not args.dry_run and not webhook:
-        log.error("Falta la variable DISCORD_WEBHOOK_URL")
-        return 2
-
+    started = time.monotonic()
+    webhook = None
     try:
+        run_log, error_log = configure_logging(ROOT / "output")
+        log.info("Inicio: dry_run=%s, use_llm=%s, config=%s", args.dry_run, not args.no_llm, args.config)
+        log.info("Logs: %s; advertencias y errores: %s", run_log, error_log)
+        load_dotenv(ROOT / ".env")
+        webhook = os.environ.get("DISCORD_WEBHOOK_URL")
+        cfg = tomllib.loads(Path(args.config).read_text(encoding="utf-8"))
+        if not args.dry_run and not webhook:
+            log.error("Falta la variable DISCORD_WEBHOOK_URL")
+            return 2
+        if not args.no_llm and not os.environ.get("OPENAI_API_KEY"):
+            log.warning("Falta OPENAI_API_KEY; se generará el informe con datos y titulares")
         report = build_report(cfg, use_llm=not args.no_llm)
         sections = render.build(report)
         preview = save(report, sections)
         log.info("Vista previa guardada en %s", preview)
         if args.dry_run:
+            log.info("Dry run completado en %.1fs; informe parcial=%s", time.monotonic() - started,
+                     bool(report.llm_error))
             return 0
         if not args.no_wait:
             tz = ZoneInfo(cfg["general"]["timezone"])
             wait_until(cfg["general"]["post_time"], tz, timedelta(minutes=cfg["general"]["max_wait_minutes"]))
         discord.send(webhook, sections)
+        log.info("Publicación completada en %.1fs; informe parcial=%s", time.monotonic() - started,
+                 bool(report.llm_error))
         return 0
     except Exception as exc:
         log.exception("No se pudo generar o publicar el resumen")
         if webhook and not args.dry_run:
             try:
-                discord.send_text(webhook, f"⚠️ No se pudo generar el resumen semanal: `{type(exc).__name__}: {str(exc)[:300]}`")
+                detail = redact_secrets(f"{type(exc).__name__}: {exc}")[:300]
+                discord.send_text(webhook, f"⚠️ No se pudo generar el resumen semanal: `{detail}`")
             except Exception:
                 log.exception("Tampoco se pudo avisar en Discord")
         return 1

@@ -288,7 +288,8 @@ def build(r: Report) -> list[Section]:
     if r.sources_failed:
         footer.append(f"-# Sin respuesta esta semana: {', '.join(r.sources_failed)}.")
     if r.llm_error:
-        footer.append(f"-# El análisis con IA falló ({r.llm_error[:150]}); se publicaron solo datos y titulares.")
+        detail = "se conservan las secciones completadas" if r.digest else "se publicaron solo datos y titulares"
+        footer.append(f"-# El análisis con IA falló ({r.llm_error[:150]}); {detail}.")
     sections.append(Section("\n".join(footer)))
     return [s for s in sections if s.embeds or not s.header.startswith("##")]
 

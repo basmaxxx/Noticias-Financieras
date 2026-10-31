@@ -96,6 +96,8 @@ def _download(url: str, attempts: int = 2) -> bytes:
             resp.raise_for_status()
             return resp.content
         except requests.RequestException:
+            log.warning("Error descargando RSS: url=%s, intento=%d/%d", url, attempt + 1, attempts,
+                        exc_info=True)
             if attempt == attempts - 1:
                 raise
     raise AssertionError("unreachable")
@@ -144,7 +146,8 @@ def fetch_all(sources: list[dict], since: datetime, until: datetime) -> tuple[li
         for source, items, error in pool.map(run, sources):
             label = f"{source['name']} ({source['url'][:60]}…)"
             if error:
-                log.warning("Fuente con error %s: %s", label, error)
+                log.warning("Fuente con error %s: %s", label, error,
+                            exc_info=(type(error), error, error.__traceback__))
                 report.failed.append(source["name"])
             else:
                 log.info("%-20s %3d notas en la ventana", source["name"], len(items))

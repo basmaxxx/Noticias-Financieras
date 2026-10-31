@@ -32,7 +32,7 @@ jobs:
 
       - name: Generar y publicar
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           ARGS=""
@@ -40,7 +40,7 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
           python -m noticias_financieras $ARGS
 
-      - name: Guardar el resumen generado
+      - name: Guardar el resumen y los logs (incluso si falla)
         if: always()
         uses: actions/upload-artifact@v4
         with:

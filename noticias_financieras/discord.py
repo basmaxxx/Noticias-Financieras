@@ -37,10 +37,13 @@ def _messages(sections: list[Section]) -> list[dict]:
 
 def _post(webhook_url: str, payload: dict, attempts: int = 5) -> None:
     payload = {**payload, "allowed_mentions": {"parse": []}}
-    for _ in range(attempts):
+    for attempt in range(1, attempts + 1):
         resp = requests.post(webhook_url, json=payload, params={"wait": "true"}, timeout=30)
         if resp.status_code == 429:
-            time.sleep(float(resp.json().get("retry_after", 2)) + 0.5)
+            delay = float(resp.json().get("retry_after", 2)) + 0.5
+            log.warning("Discord limitó el envío (HTTP 429): intento=%d/%d, espera=%.1fs",
+                        attempt, attempts, delay)
+            time.sleep(delay)
             continue
         if resp.status_code >= 400:
             raise RuntimeError(f"Discord respondió {resp.status_code}: {resp.text[:500]}")
@@ -50,7 +53,8 @@ def _post(webhook_url: str, payload: dict, attempts: int = 5) -> None:
 
 def send(webhook_url: str, sections: list[Section]) -> None:
     messages = _messages(sections)
-    for message in messages:
+    for index, message in enumerate(messages, start=1):
+        log.info("Enviando mensaje %d/%d a Discord", index, len(messages))
         _post(webhook_url, message)
         time.sleep(1)  # mantiene el orden y evita el rate limit del webhook
     log.info("Publicados %d mensajes en Discord", len(messages))

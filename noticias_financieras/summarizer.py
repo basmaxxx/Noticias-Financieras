@@ -1,4 +1,4 @@
-"""Redacción del resumen con Claude, con salida estructurada y verificación de fuentes.
+"""Redacción del resumen con OpenAI, con salida estructurada y verificación de fuentes.
 
 Dos llamadas:
   1. Noticias -> highlights, macro, Argentina y empresas con novedades.
@@ -10,10 +10,11 @@ Cada punto debe citar IDs de historias; los que no citan una historia existente 
 import json
 import logging
 import re
+import time
 from datetime import date
 from typing import Literal
 
-import anthropic
+from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from .market import Quote
@@ -139,35 +140,47 @@ def format_fundamentals(data: dict[str, dict]) -> str:
 # --- Llamadas al modelo -----------------------------------------------------------
 
 class Summarizer:
-    def __init__(self, model: str, effort: str):
-        self.client = anthropic.Anthropic()
+    def __init__(self, model: str, effort: str, max_output_tokens: int = 64000,
+                 timeout_seconds: float = 600):
+        self.client = OpenAI(timeout=timeout_seconds, max_retries=2)
         self.model = model
         self.effort = effort
+        self.max_output_tokens = max_output_tokens
 
     def _call(self, prompt: str, schema: type[BaseModel]):
-        # fallbacks="default": si el modelo rechaza el pedido, la API lo reintenta con
-        # el modelo de respaldo recomendado en la misma llamada.
-        with self.client.beta.messages.stream(
-            model=self.model,
-            max_tokens=64000,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            thinking={"type": "adaptive"},
-            output_config={"effort": self.effort},
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-            output_format=schema,
-        ) as stream:
-            message = stream.get_final_message()
-        log.info("Claude (%s): %s tokens entrada, %s salida, stop=%s", message.model,
-                 message.usage.input_tokens, message.usage.output_tokens, message.stop_reason)
-        if message.stop_reason == "refusal":
-            raise RuntimeError(f"El modelo rechazó el pedido: {message.stop_details}")
-        if message.stop_reason == "max_tokens":
-            raise RuntimeError("La respuesta se cortó por max_tokens")
-        if message.parsed_output is None:
-            raise RuntimeError("La respuesta no respetó el esquema")
-        return message.parsed_output
+        started = time.monotonic()
+        log.info("OpenAI: iniciando %s, modelo=%s, esfuerzo=%s", schema.__name__, self.model, self.effort)
+        try:
+            response = self.client.responses.parse(
+                model=self.model,
+                max_output_tokens=self.max_output_tokens,
+                reasoning={"effort": self.effort},
+                instructions=SYSTEM_PROMPT,
+                input=prompt,
+                text_format=schema,
+            )
+            usage = response.usage
+            log.info("OpenAI (%s): etapa=%s, entrada=%s, salida=%s, estado=%s, "
+                     "duración=%.1fs, response_id=%s, request_id=%s", response.model,
+                     schema.__name__, usage.input_tokens if usage else None,
+                     usage.output_tokens if usage else None, response.status,
+                     time.monotonic() - started, response.id, getattr(response, "_request_id", None))
+            if response.status == "incomplete":
+                reason = response.incomplete_details.reason if response.incomplete_details else "desconocido"
+                raise RuntimeError(f"Respuesta incompleta de OpenAI: {reason}")
+            if response.status != "completed":
+                raise RuntimeError(f"OpenAI no completó la respuesta: {response.status} ({response.error})")
+            if any(part.type == "refusal" for item in response.output if item.type == "message"
+                   for part in item.content):
+                raise RuntimeError("El modelo rechazó el pedido")
+            if response.output_parsed is None:
+                raise RuntimeError("La respuesta no respetó el esquema")
+            return response.output_parsed
+        except Exception as exc:
+            log.exception("Falló OpenAI: etapa=%s, modelo=%s, duración=%.1fs, status=%s, request_id=%s",
+                          schema.__name__, self.model, time.monotonic() - started,
+                          getattr(exc, "status_code", None), getattr(exc, "request_id", None))
+            raise
 
     def news(self, stories: list[Story], market_text: str, start: date, end: date) -> ResumenNoticias:
         prompt = f"""\

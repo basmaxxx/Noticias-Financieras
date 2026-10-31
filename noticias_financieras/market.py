@@ -46,12 +46,16 @@ def _closes(tickers: list[str]) -> pd.DataFrame:
     data = yf.download(tickers, period="3mo", interval="1d", auto_adjust=True,
                        progress=False, threads=True)
     if data is None or data.empty:
+        log.warning("Yahoo Finance no devolvió cotizaciones para %s", ", ".join(tickers))
         return pd.DataFrame()
     close = data["Close"]
     if isinstance(close, pd.Series):
         close = close.to_frame(tickers[0])
     if close.index.tz is not None:
         close.index = close.index.tz_localize(None)
+    missing = [t for t in tickers if t not in close]
+    if missing:
+        log.warning("Yahoo Finance omitió tickers: %s", ", ".join(missing))
     return close
 
 
@@ -95,6 +99,7 @@ def ccl(cfg: dict, today: date, max_age_days: int) -> Quote | None:
     """Dólar contado con liquidación implícito: precio local * ratio / precio del ADR."""
     close = _closes([cfg["local"], cfg["adr"]])
     if cfg["local"] not in close or cfg["adr"] not in close:
+        log.warning("CCL no disponible: faltan cotizaciones de %s o %s", cfg["local"], cfg["adr"])
         return None
     implied = (close[cfg["local"]] * cfg["ratio"] / close[cfg["adr"]]).dropna()
     return _quote(cfg["name"], "CCL", implied, today, max_age_days)
@@ -109,8 +114,8 @@ def fundamentals(tickers: list[str]) -> dict[str, dict]:
     def one(ticker):
         try:
             info = yf.Ticker(ticker).info or {}
-        except Exception as exc:
-            log.warning("No se pudieron obtener fundamentals de %s: %s", ticker, exc)
+        except Exception:
+            log.warning("No se pudieron obtener fundamentals de %s", ticker, exc_info=True)
             return ticker, None
         price = info.get("currentPrice") or info.get("regularMarketPrice")
         name = info.get("shortName") or info.get("longName")
@@ -134,6 +139,7 @@ def earnings_between(tickers: list[str], start: date, end: date) -> list[tuple[d
         try:
             cal = yf.Ticker(ticker).calendar or {}
         except Exception:
+            log.warning("No se pudo obtener el calendario de balances de %s", ticker, exc_info=True)
             return []
         dates = (cal.get("Earnings Date") or []) if isinstance(cal, dict) else []
         return [(d, ticker) for d in dates if isinstance(d, date) and start <= d <= end]
